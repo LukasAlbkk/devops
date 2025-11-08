@@ -1,9 +1,7 @@
-# k8s/job-ml-ds1.yaml
 apiVersion: batch/v1
 kind: Job
 metadata:
-  # 1. Mudamos o nome DE NOVO (para '005')
-  name: playlist-ml-ds1-005
+  name: playlist-ml-ds2-001
   namespace: lucascosta
 spec:
   backoffLimit: 1
@@ -16,25 +14,17 @@ spec:
           imagePullPolicy: Always
           env:
             - name: DATASET_URL
-              value: "https://raw.githubusercontent.com/LukasAlbkk/devops/main/datasets/2023_spotify_ds1.csv"
+              value: "/home/lucascosta/devops/datasets/2023_spotify_ds2.csv"
             - name: PLAYLIST_COL
               value: "pid"
             - name: SONG_COL
               value: "track_name"
+            - name: MIN_SUP
+              value: "0.001"
             - name: MIN_CONF
               value: "0.2"
             - name: MODEL_DIR
               value: "/shared/model"
-            - name: MIN_SUP
-              value: "0.05"
-          
-          # 2. Correção: Pedindo '2G' (Gigabytes) em vez de '2Gi' (Gibibytes)
-          resources:
-            requests:
-              memory: "1Gi"
-            limits:
-              memory: "2G"  # <--- MUDANÇA CRÍTICA AQUI (de 2Gi para 2G)
-
           volumeMounts:
             - name: shared
               mountPath: /shared
