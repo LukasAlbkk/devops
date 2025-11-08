@@ -1,0 +1,38 @@
+# k8s/argo-app.yaml (você pode salvar este arquivo na sua pasta k8s também)
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  # Nome da sua aplicação no painel do ArgoCD
+  name: playlist-app-lucascosta
+  # A aplicação em si DEVE ser criada no namespace 'argocd'
+  namespace: argocd
+spec:
+  # O nome do projeto, conforme instruído
+  project: lucascosta-project
+  
+  # A fonte (seu repositório Git)
+  source:
+    # !!! ATUALIZE ESTE CAMPO !!!
+    repoURL: https://github.com/LukasAlbkk/devops.git
+    
+    # O branch que o Argo vai monitorar
+    targetRevision: HEAD
+    
+    # A pasta dentro do repositório onde seus YAMLs estão
+    path: k8s 
+    
+  # O destino (onde o Argo vai aplicar os arquivos)
+  destination:
+    # O servidor do cluster K8s
+    server: https://kubernetes.default.svc
+    
+    # O namespace de destino para seus recursos
+    namespace: lucascosta
+
+  # Política de Sincronização
+  syncPolicy:
+    automated:
+      # (Prune) Se você deletar um arquivo do Git, o Argo deleta do cluster
+      prune: true
+      # (SelfHeal) Se alguém alterar algo no cluster, o Argo reverte para o estado do Git
+      selfHeal: true

@@ -1,13 +1,16 @@
 apiVersion: v1
 kind: Service
 metadata:
-  name: playlist-svc
+  name: lucascosta-playlist-svc
   namespace: lucascosta
+  labels:
+    app: lucascosta-playlist-recommender
 spec:
   type: ClusterIP
   selector:
     app: lucascosta-playlist-recommender
+    tier: api
   ports:
     - name: http
-      port: 30502       # PORTA DO SERVIÇO (padrão do projeto)
-      targetPort: 5000  # porta interna do Flask
+      port: 50018        # porta do serviço no cluster (a que o enunciado usa pra cada aluno)
+      targetPort: 5000   # porta dentro do container (Flask)
