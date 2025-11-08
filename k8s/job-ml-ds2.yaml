@@ -1,7 +1,7 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: playlist-ml-ds2-001
+  name: playlist-ml-ds2-002
   namespace: lucascosta
 spec:
   backoffLimit: 1
