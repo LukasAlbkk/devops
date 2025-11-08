@@ -188,8 +188,9 @@ def _mine_with_fim(tx_path: str, abs_min_sup: int, min_conf: float):
     """
     # target='r' -> regras; report='aC' -> antecedente, consequente, confiança
     # 'fim' devolve conf em porcento; 'pyfim' também aceita 'conf=XX'
+    # Nota: pyfim não aceita 'sep' como parâmetro, assume tab automaticamente
     rules = _fim.fpgrowth(tx_path, target='r', supp=abs_min_sup, conf=int(min_conf*100),
-                          report='aC', sep='\t')
+                          report='aC')
     # Normaliza: alguns bindings retornam listas, outros iteradores
     for ant, cons, conf in rules:
         # quando report='aC', alguns retornos podem vir como strings separadas por tab; normalizamos
