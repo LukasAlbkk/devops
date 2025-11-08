@@ -2,8 +2,8 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  # 1. Mudamos o nome DE NOVO (para '003')
-  name: playlist-ml-ds1-003
+  # 1. Mudamos o nome DE NOVO (para '004')
+  name: playlist-ml-ds1-004
   namespace: lucascosta
 spec:
   backoffLimit: 1
@@ -26,16 +26,16 @@ spec:
             - name: MODEL_DIR
               value: "/shared/model"
             
-            # 2. Correção para OOMKilled: Aumentando MAIS AINDA (0.5% -> 1.0%)
+            # 2. Correção para OOMKilled: Aumentando MAIS AINDA (1.0% -> 5.0%)
             - name: MIN_SUP
-              value: "0.01"
+              value: "0.05"
           
-          # 3. Correção para OOMKilled: Pedindo MAIS memória (2Gi -> 3Gi)
+          # 3. Correção para OOMKilled: Pedindo o MÁXIMO de memória permitido (2Gi)
           resources:
             requests:
               memory: "1Gi"
             limits:
-              memory: "3Gi"  # <--- Aumentamos a memória
+              memory: "2Gi"  # <--- Reduzimos para o limite de 2Gi
 
           volumeMounts:
             - name: shared
