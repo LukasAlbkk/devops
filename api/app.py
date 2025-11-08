@@ -33,7 +33,29 @@ def _watch_model(loop_sec=5):
         time.sleep(loop_sec)
 
 def _norm(song: str) -> str:
-    return str(song).casefold().strip()
+    """Normaliza nome de música removendo sufixos comuns e padronizando."""
+    s = str(song).casefold().strip()
+
+    # Remove sufixos comuns do Spotify
+    suffixes = [
+        ' - remastered 2011',
+        ' - remastered 2009',
+        ' - remastered 2010',
+        ' - remastered',
+        ' - live',
+        ' - radio edit',
+        ' - album version',
+        ' - single version',
+        ' - explicit',
+        ' - clean',
+    ]
+
+    for suffix in suffixes:
+        if s.endswith(suffix):
+            s = s[:-len(suffix)].strip()
+            break
+
+    return s
 
 def _recommend(input_songs: list[str], top_k: int = 20):
     if not app.model or "rules" not in app.model:

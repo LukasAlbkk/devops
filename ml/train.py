@@ -30,7 +30,7 @@ MAX_RULES_PER_ANT = int(os.getenv("MAX_RULES_PER_ANT", "30"))
 assert DATASET_URL, "Defina DATASET_URL"
 os.makedirs(MODEL_DIR, exist_ok=True)
 MODEL_PATH = os.path.join(MODEL_DIR, MODEL_NAME)
-META_PATH  = os.path.join(MODEL_DIR, "model_meta.json") 
+META_PATH  = os.path.join(MODEL_DIR, "model_meta.json")
 
 # -------------------- Tentativa de minerador em C (memória bem menor) --------------------
 _fim = None
@@ -60,8 +60,29 @@ def _download_or_open(url: str) -> io.BytesIO:
     raise ValueError(f"Não consegui abrir: {url}")
 
 def _norm(song: str) -> str:
-    """Normaliza nome de música (mesma função usada na API)."""
-    return str(song).casefold().strip()
+    """Normaliza nome de música removendo sufixos comuns e padronizando (mesma função usada na API)."""
+    s = str(song).casefold().strip()
+
+    # Remove sufixos comuns do Spotify
+    suffixes = [
+        ' - remastered 2011',
+        ' - remastered 2009',
+        ' - remastered 2010',
+        ' - remastered',
+        ' - live',
+        ' - radio edit',
+        ' - album version',
+        ' - single version',
+        ' - explicit',
+        ' - clean',
+    ]
+
+    for suffix in suffixes:
+        if s.endswith(suffix):
+            s = s[:-len(suffix)].strip()
+            break
+
+    return s
 
 def _to_sqlite(csv_buf: io.BytesIO, sqlite_path: str) -> tuple[int, int]:
     """Carrega PID e SONG em um SQLite (em disco), em chunks. Retorna (linhas, playlists_distintas)."""
@@ -161,6 +182,12 @@ def _filter_transactions(tx_in: str, tx_out: str, item_supp: dict, abs_min_sup: 
                 fout.write("\t".join(items) + "\n")
 
 def _mine_with_fim(tx_path: str, abs_min_sup: int, min_conf: float):
+    """
+    Usa fpgrowth do pacote 'fim' (C). Retorna iterável de tuplas (ant, cons, supp, conf).
+    conf em [0,1]. abs_min_sup inteiro.
+    """
+    # target='r' -> regras; report='aC' -> antecedente, consequente, confiança
+    # 'fim' devolve conf em porcento; 'pyfim' também aceita 'conf=XX'
     rules = _fim.fpgrowth(tx_path, target='r', supp=abs_min_sup, conf=int(min_conf*100),
                           report='aC', sep='\t')
     # Normaliza: alguns bindings retornam listas, outros iteradores

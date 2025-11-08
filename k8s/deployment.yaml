@@ -19,7 +19,7 @@ spec:
     spec:
       containers:
         - name: api
-          image: lukasalbukk/playlist-api:0.5
+          image: lukasalbukk/playlist-api:0.6
           imagePullPolicy: Always
           ports:
             - containerPort: 5000
