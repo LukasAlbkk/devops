@@ -13,7 +13,7 @@ spec:
       containers:
         - name: ml-train
           # Usando a imagem v0.1 (que agora tem o código original sem amostragem)
-          image: docker.io/lukasalbukk/playlist-ml:0.1
+          image: docker.io/lukasalbukk/playlist-ml:0.2
           imagePullPolicy: Always
           env:
             - name: DATASET_URL
