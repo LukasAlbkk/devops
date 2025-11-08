@@ -2,7 +2,7 @@ import os, time, threading, json, pickle
 from flask import Flask, request, jsonify
 
 MODEL_PATH   = os.getenv("MODEL_PATH", "/shared/model/rules_model.pkl")
-CODE_VERSION = os.getenv("CODE_VERSION", "0.3.0")
+CODE_VERSION = os.getenv("CODE_VERSION", "0.1.0")
 PORT         = int(os.getenv("PORT", "5000"))
 HOST         = "0.0.0.0"
 
@@ -54,14 +54,6 @@ def _recommend(input_songs: list[str], top_k: int = 20):
     # Contador de regras aplicadas (para debug)
     rules_applied = 0
 
-    # DEBUG: Log input songs normalized
-    app.logger.info(f"[API DEBUG] Input normalized: {input_norm}")
-    app.logger.info(f"[API DEBUG] Total antecedents in model: {len(rules)}")
-
-    # DEBUG: Sample first 5 antecedents to see format
-    sample_ants = list(rules.keys())[:5]
-    app.logger.info(f"[API DEBUG] Sample antecedents: {sample_ants}")
-
     # mapeia todas as combinações possíveis presentes nos antecedentes
     for ant_t, outs in rules.items():
         # As músicas já estão normalizadas no modelo
@@ -75,7 +67,7 @@ def _recommend(input_songs: list[str], top_k: int = 20):
                         continue
                     scores[c] = scores.get(c, 0.0) + float(conf)
 
-    app.logger.info(f"[API] Regras aplicadas: {rules_applied}, Candidatos únicos: {len(scores)}")
+    app.logger.debug(f"[API] Regras aplicadas: {rules_applied}, Candidatos únicos: {len(scores)}")
 
     ranked = sorted(scores.items(), key=lambda kv: kv[1], reverse=True)
     return [name for name, _ in ranked[:top_k]]
