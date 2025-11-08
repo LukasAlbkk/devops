@@ -30,7 +30,7 @@ MAX_RULES_PER_ANT = int(os.getenv("MAX_RULES_PER_ANT", "30"))
 assert DATASET_URL, "Defina DATASET_URL"
 os.makedirs(MODEL_DIR, exist_ok=True)
 MODEL_PATH = os.path.join(MODEL_DIR, MODEL_NAME)
-META_PATH  = os.path.join(MODEL_DIR, "model_meta.json")
+META_PATH  = os.path.join(MODEL_DIR, "model_meta.json") 
 
 # -------------------- Tentativa de minerador em C (memória bem menor) --------------------
 _fim = None
