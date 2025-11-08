@@ -12,5 +12,5 @@ spec:
     tier: api
   ports:
     - name: http
-      port: 50018        # porta do serviço no cluster (a que o enunciado usa pra cada aluno)
-      targetPort: 5000   # porta dentro do container (Flask)
+      port: 50018        
+      targetPort: 5000   
