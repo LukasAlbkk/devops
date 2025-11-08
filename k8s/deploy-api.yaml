@@ -1,0 +1,41 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: playlist-api-deploy
+  namespace: lucascosta
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: lucascosta-playlist-recommender
+  template:
+    metadata:
+      labels:
+        app: lucascosta-playlist-recommender
+    spec:
+      containers:
+        - name: api
+          image: docker.io/lukasalbukk/playlist-api:0.1
+          imagePullPolicy: Always
+          env:
+            - name: MODEL_PATH
+              value: /shared/model/rules_model.pkl
+            - name: CODE_VERSION
+              value: "0.1.0"
+            - name: PORT
+              value: "5000"
+          ports:
+            - containerPort: 5000
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 5000
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          volumeMounts:
+            - name: shared
+              mountPath: /shared
+      volumes:
+        - name: shared
+          persistentVolumeClaim:
+            claimName: project2-pvc
