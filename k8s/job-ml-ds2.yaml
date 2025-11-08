@@ -2,8 +2,8 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  # 1. Mudamos o nome para '004' (o '003' falhou)
-  name: playlist-ml-ds2-005
+  # 1. Mudamos o nome para '005'
+  name: playlist-ml-ds2-006
   namespace: lucascosta
 spec:
   backoffLimit: 1
@@ -12,6 +12,7 @@ spec:
       restartPolicy: Never
       containers:
         - name: ml-train
+          # Usando a imagem v0.1 (que agora tem o código original sem amostragem)
           image: docker.io/lukasalbukk/playlist-ml:0.1
           imagePullPolicy: Always
           env:
@@ -26,15 +27,12 @@ spec:
             - name: MODEL_DIR
               value: "/shared/model"
             
-            # CORREÇÃO: Usando MIN_SUP baixo (porque agora temos o MAX_BASKETS)
+            # 2. Voltando para o MIN_SUP alto que funcionou
             - name: MIN_SUP
-              value: "0.005" # 0.5% (muito mais regras)
-
-            # CORREÇÃO: Adicionando o MAX_BASKETS
-            - name: MAX_BASKETS
-              value: "20000" # Amostra de 50k
+              value: "0.1"
+            
+            # 3. MAX_BASKETS foi removido (porque o 'train.py' revertido não o usa)
           
-          # Pedindo o máximo de memória (2G)
           resources:
             requests:
               memory: "1Gi"
