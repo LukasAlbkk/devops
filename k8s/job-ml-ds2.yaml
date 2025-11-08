@@ -29,7 +29,7 @@ spec:
             
             # 2. Voltando para o MIN_SUP alto que funcionou
             - name: MIN_SUP
-              value: "0.1"
+              value: "0.005"
             
             # 3. MAX_BASKETS foi removido (porque o 'train.py' revertido não o usa)
           

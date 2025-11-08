@@ -1,27 +1,52 @@
-import os, sys, io, json, time, pickle, tempfile
-from urllib.parse import urlparse
-import requests
-import pandas as pd
-from fpgrowth_py import fpgrowth
+# train_rules.py
+# Treino low-memory de regras de associação a partir dos CSVs do Spotify.
+# Uso típico no cluster:
+#   export DATASET_URL="file:///home/datasets/spotify/2023_spotify_ds1.csv"
+#   export MODEL_DIR="/shared/model"
+#   python train_rules.py
+#
+# Env vars (opcionais):
+#   PLAYLIST_COL=pid   | SONG_COL=track_name
+#   MIN_SUP=0.01       | MIN_CONF=0.2
+#   CHUNK_ROWS=250000  | TMP_DIR=/tmp
+#   MODEL_NAME=rules_model.pkl | MAX_RULES_PER_ANT=30
 
-# === Config por ENV ===
-DATASET_URL = os.getenv("DATASET_URL")  # ex: https://.../2023_spotify_ds1.csv  (ou file:///caminho/local.csv)
+import os, io, json, time, pickle, sqlite3, math
+from urllib.parse import urlparse
+import pandas as pd
+
+# -------------------- Config por ENV --------------------
+DATASET_URL = os.getenv("DATASET_URL")                      # http(s)://, file://, ou caminho local
 PLAYLIST_COL = os.getenv("PLAYLIST_COL", "pid")
 SONG_COL     = os.getenv("SONG_COL", "track_name")
-MIN_SUP      = float(os.getenv("MIN_SUP", "0.001"))   # 0.1% por default (ajuste conforme memória/tempo)
+MIN_SUP      = float(os.getenv("MIN_SUP", "0.01"))          # 1% (ajuste conforme o tamanho do dataset)
 MIN_CONF     = float(os.getenv("MIN_CONF", "0.2"))
 MODEL_DIR    = os.getenv("MODEL_DIR", "/shared/model")
 MODEL_NAME   = os.getenv("MODEL_NAME", "rules_model.pkl")
+CHUNK_ROWS   = int(os.getenv("CHUNK_ROWS", "250000"))       # leitura em chunks = pouco uso de RAM
+TMP_DIR      = os.getenv("TMP_DIR", "/tmp")
+MAX_RULES_PER_ANT = int(os.getenv("MAX_RULES_PER_ANT", "30"))
 
 assert DATASET_URL, "Defina DATASET_URL"
-
 os.makedirs(MODEL_DIR, exist_ok=True)
 MODEL_PATH = os.path.join(MODEL_DIR, MODEL_NAME)
 META_PATH  = os.path.join(MODEL_DIR, "model_meta.json")
 
+# -------------------- Tentativa de minerador em C (memória bem menor) --------------------
+_fim = None
+try:
+    import fim as _fim   # pip install fim
+except Exception:
+    try:
+        import pyfim as _fim  # alternativa
+    except Exception:
+        _fim = None
+
+# -------------------- Utilidades --------------------
 def _download_or_open(url: str) -> io.BytesIO:
     p = urlparse(url)
     if p.scheme in ("http", "https"):
+        import requests
         r = requests.get(url, timeout=600)
         r.raise_for_status()
         return io.BytesIO(r.content)
@@ -29,93 +54,246 @@ def _download_or_open(url: str) -> io.BytesIO:
         path = p.path
         with open(path, "rb") as f:
             return io.BytesIO(f.read())
-    # caminho local cru
-    if os.path.exists(url):
+    if os.path.exists(url):  # caminho local cru
         with open(url, "rb") as f:
             return io.BytesIO(f.read())
     raise ValueError(f"Não consegui abrir: {url}")
 
-def _infer_baskets(df: pd.DataFrame) -> list[list[str]]:
-    cols = set(c.lower() for c in df.columns)
-    # normaliza nomes
-    def pick(name_candidates):
-        for n in name_candidates:
-            for c in df.columns:
-                if c.lower() == n.lower():
-                    return c
-        return None
+def _to_sqlite(csv_buf: io.BytesIO, sqlite_path: str) -> tuple[int, int]:
+    """Carrega PID e SONG em um SQLite (em disco), em chunks. Retorna (linhas, playlists_distintas)."""
+    conn = sqlite3.connect(sqlite_path)
+    cur = conn.cursor()
+    cur.execute("PRAGMA journal_mode=WAL;")
+    cur.execute("PRAGMA synchronous=NORMAL;")
+    cur.execute("CREATE TABLE IF NOT EXISTS plays (pid TEXT, song TEXT);")
+    conn.commit()
 
-    pl_col = pick([PLAYLIST_COL, "playlist_id", "pid", "playlist"])
-    sg_col = pick([SONG_COL, "song_name", "track_name", "track", "track_uri", "song"])
+    total_rows = 0
+    for chunk in pd.read_csv(csv_buf, dtype=str, keep_default_na=False,
+                             chunksize=CHUNK_ROWS, low_memory=True):
+        # pick case-insensitive
+        def pick(cands):
+            for n in cands:
+                for c in chunk.columns:
+                    if c.lower() == n.lower():
+                        return c
+            return None
+        pl_col = pick([PLAYLIST_COL, "playlist_id", "pid", "playlist"])
+        sg_col = pick([SONG_COL, "song_name", "track_name", "track", "track_uri", "song"])
+        if not pl_col or not sg_col:
+            raise ValueError("Não consegui identificar as colunas de playlist e música.")
+        sub = chunk[[pl_col, sg_col]].rename(columns={pl_col:"pid", sg_col:"song"})
+        rows = [(str(p).strip(), str(s).strip()) for p,s in sub.itertuples(index=False) if str(p).strip() and str(s).strip()]
+        if not rows:
+            continue
+        cur.execute("BEGIN")
+        cur.executemany("INSERT INTO plays(pid, song) VALUES (?,?)", rows)
+        conn.commit()
+        total_rows += len(rows)
 
-    if pl_col and sg_col:
-        # formato row-wise: (playlist_id, song)
-        grouped = df.groupby(pl_col)[sg_col].apply(lambda s: [str(x).strip() for x in s.dropna().astype(str).tolist()])
-        baskets = [list(dict.fromkeys(x)) for x in grouped.tolist()]  # remove duplicados preservando ordem
-        return [b for b in baskets if len(b) >= 2]
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_pid ON plays(pid);")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_song ON plays(song);")
+    conn.commit()
 
-    # formato com coluna de lista/JSON em 'tracks'/'songs'
-    list_col = pick(["tracks", "songs", "itens", "items"])
-    if list_col:
-        baskets = []
-        for raw in df[list_col].dropna().astype(str):
-            try:
-                # tenta JSON
-                v = json.loads(raw)
-                if isinstance(v, list):
-                    basket = [str(x).strip() for x in v if str(x).strip()]
-                    if len(basket) >= 2:
-                        baskets.append(list(dict.fromkeys(basket)))
-                    continue
-            except Exception:
-                pass
-            # fallback: separadores comuns
-            for sep in ["|", ";", "~~", ","]:
-                if sep in raw:
-                    parts = [p.strip() for p in raw.split(sep)]
-                    parts = [p for p in parts if p]
-                    if len(parts) >= 2:
-                        baskets.append(list(dict.fromkeys(parts)))
-                    break
-        return baskets
+    n_playlists = cur.execute("SELECT COUNT(DISTINCT pid) FROM plays;").fetchone()[0]
+    conn.close()
+    return total_rows, n_playlists
 
-    raise ValueError("Não consegui identificar colunas de playlist e música. Ajuste PLAYLIST_COL/SONG_COL.")
+def _dump_tx_and_item_supp(sqlite_path: str, tx_path: str) -> tuple[int, dict]:
+    """
+    Gera transactions (uma linha por playlist, itens separados por TAB) varrendo ordenado por pid.
+    Calcula suporte de 1-item (por #playlists) sem usar group_concat (menos RAM).
+    """
+    conn = sqlite3.connect(sqlite_path)
+    cur = conn.cursor()
+    cur_it = cur.execute("SELECT pid, song FROM plays ORDER BY pid;")
 
-def train_rules(baskets: list[list[str]]):
-    # fpgrowth_py retorna tuples de sets
-    freq, rules = fpgrowth(baskets, minSupRatio=MIN_SUP, minConf=MIN_CONF)
-    # normaliza em dict: antecedente(tuple)-> list[(consequente(tuple), conf)]
-    rules_map = {}
+    n_baskets = 0
+    item_supp = {}
+    with open(tx_path, "w", encoding="utf-8") as fout:
+        last_pid = None
+        seen = set()
+        basket = []
+
+        for pid, song in cur_it:
+            if last_pid is None:
+                last_pid = pid
+            if pid != last_pid:
+                # fecha playlist anterior
+                if len(basket) >= 2:
+                    fout.write("\t".join(basket) + "\n")
+                    n_baskets += 1
+                    # incrementa suporte 1-item para itens únicos dessa playlist
+                    for it in seen:
+                        item_supp[it] = item_supp.get(it, 0) + 1
+                # inicia nova playlist
+                last_pid = pid
+                seen.clear()
+                basket.clear()
+
+            if song and song not in seen:
+                seen.add(song)
+                basket.append(song)
+
+        # flush final
+        if basket:
+            if len(basket) >= 2:
+                fout.write("\t".join(basket) + "\n")
+                n_baskets += 1
+                for it in seen:
+                    item_supp[it] = item_supp.get(it, 0) + 1
+
+    conn.close()
+    return n_baskets, item_supp
+
+def _filter_transactions(tx_in: str, tx_out: str, item_supp: dict, abs_min_sup: int) -> None:
+    """Remove itens com suporte < abs_min_sup, reduzindo MUITO a memória da mineração."""
+    keep = {it for it, cnt in item_supp.items() if cnt >= abs_min_sup}
+    with open(tx_in, "r", encoding="utf-8") as fin, open(tx_out, "w", encoding="utf-8") as fout:
+        for line in fin:
+            items = [x for x in line.rstrip("\n").split("\t") if x in keep]
+            if len(items) >= 2:
+                fout.write("\t".join(items) + "\n")
+
+def _mine_with_fim(tx_path: str, abs_min_sup: int, min_conf: float):
+    """
+    Usa fpgrowth do pacote 'fim' (C). Retorna iterável de tuplas (ant, cons, supp, conf).
+    conf em [0,1]. abs_min_sup inteiro.
+    """
+    # target='r' -> regras; report='aC' -> antecedente, consequente, confiança
+    # 'fim' devolve conf em porcento; 'pyfim' também aceita 'conf=XX'
+    rules = _fim.fpgrowth(tx_path, target='r', supp=abs_min_sup, conf=int(min_conf*100),
+                          report='aC', sep='\t')
+    # Normaliza: alguns bindings retornam listas, outros iteradores
     for ant, cons, conf in rules:
+        # quando report='aC', alguns retornos podem vir como strings separadas por tab; normalizamos
+        if isinstance(ant, str):
+            ant = tuple([x for x in ant.split('\t') if x])
+        if isinstance(cons, str):
+            cons = tuple([x for x in cons.split('\t') if x])
+        yield tuple(ant), tuple(cons), None, float(conf)/100.0
+
+def _mine_pairwise_fallback(tx_path: str, abs_min_sup: int, min_conf: float):
+    """
+    Fallback leve (sem árvore): calcula regras 1->1 a partir de pares frequentes.
+    É suficiente para recomendações básicas e cabe em pouca RAM após o filtro.
+    """
+    from collections import Counter
+    item_cnt = Counter()
+    pair_cnt = Counter()
+
+    with open(tx_path, "r", encoding="utf-8") as f:
+        for line in f:
+            items = line.rstrip("\n").split("\t")
+            # limita tamanho extremo de cestas para memória previsível (opcional)
+            if len(items) > 200:
+                items = items[:200]
+            uniq = list(dict.fromkeys(items))
+            for a in uniq:
+                item_cnt[a] += 1
+            L = len(uniq)
+            for i in range(L):
+                ai = uniq[i]
+                for j in range(i+1, L):
+                    bj = uniq[j]
+                    if ai <= bj:
+                        pair_cnt[(ai,bj)] += 1
+                    else:
+                        pair_cnt[(bj,ai)] += 1
+
+    for (a,b), c_ab in pair_cnt.items():
+        if c_ab >= abs_min_sup:
+            conf_ab = c_ab / max(1, item_cnt[a])
+            if conf_ab >= min_conf:
+                yield (a,), (b,), c_ab, conf_ab
+            conf_ba = c_ab / max(1, item_cnt[b])
+            if conf_ba >= min_conf:
+                yield (b,), (a,), c_ab, conf_ba
+
+def _mine_rules(tx_path: str, abs_min_sup: int, min_conf: float):
+    if _fim is not None:
+        return _mine_with_fim(tx_path, abs_min_sup, min_conf)
+    return _mine_pairwise_fallback(tx_path, abs_min_sup, min_conf)
+
+def _build_rules_map(rules_iter, max_rules_per_ant=30):
+    """Dict: antecedente(tuple) -> top-K [(consequente(tuple), conf)], ordenado por confiança."""
+    from heapq import nlargest
+    tmp = {}
+    count = 0
+    for ant, cons, supp, conf in rules_iter:
         ant_t = tuple(sorted([str(x) for x in ant]))
         cons_t = tuple(sorted([str(x) for x in cons]))
-        rules_map.setdefault(ant_t, []).append((cons_t, float(conf)))
+        tmp.setdefault(ant_t, []).append((cons_t, float(conf)))
+        count += 1
+    rules_map = {}
+    for ant, lst in tmp.items():
+        rules_map[ant] = nlargest(max_rules_per_ant, lst, key=lambda x: x[1])
     return rules_map
 
-def save_model(rules_map: dict):
+def _save_model(rules_map: dict, n_baskets: int, abs_min_sup: int):
     model = {
         "kind": "fp_rules",
         "rules": rules_map,
-        "min_sup": MIN_SUP,
+        "min_sup_ratio": MIN_SUP,
         "min_conf": MIN_CONF,
+        "abs_min_sup": abs_min_sup,
         "dataset_url": DATASET_URL,
         "model_date": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-        "song_norm": "casefold"  # como normalizamos
+        "song_norm": "casefold",
+        "n_baskets": n_baskets,
+        "version": "0.2.0-lowmem"
     }
     with open(MODEL_PATH, "wb") as f:
         pickle.dump(model, f)
-    with open(META_PATH, "w") as f:
-        json.dump({k: (v if k != "rules" else f"{len(rules_map)} antecedents") for k, v in model.items()}, f, ensure_ascii=False, indent=2)
+    with open(META_PATH, "w", encoding="utf-8") as f:
+        json.dump(
+            {
+                "kind": model["kind"],
+                "antecedents": len(rules_map),
+                "min_sup_ratio": model["min_sup_ratio"],
+                "min_conf": model["min_conf"],
+                "abs_min_sup": model["abs_min_sup"],
+                "n_baskets": model["n_baskets"],
+                "dataset_url": model["dataset_url"],
+                "model_date": model["model_date"],
+                "version": model["version"]
+            },
+            f, ensure_ascii=False, indent=2
+        )
 
+# -------------------- Main --------------------
 def main():
+    print(f"[ML] Lendo dataset: {DATASET_URL}")
+    sqlite_path = os.path.join(TMP_DIR, "plays.sqlite")
     buf = _download_or_open(DATASET_URL)
-    df = pd.read_csv(buf, dtype=str, keep_default_na=False)
-    baskets = _infer_baskets(df)
-    print(f"[ML] Baskets: {len(baskets)}")
-    rules = train_rules(baskets)
-    print(f"[ML] Antecedentes gerados: {len(rules)}")
-    save_model(rules)
+    total_rows, n_playlists = _to_sqlite(buf, sqlite_path)
+    print(f"[ML] Linhas inseridas: {total_rows} | Playlists distintas: {n_playlists}")
+
+    tx_all = os.path.join(TMP_DIR, "transactions_all.txt")
+    n_baskets, item_supp = _dump_tx_and_item_supp(sqlite_path, tx_all)
+    if n_baskets == 0:
+        print("[ML] Zero cestas após parsing. Salvando modelo vazio.")
+        _save_model({}, 0, 0)
+        return
+    abs_min_sup = int(math.ceil(MIN_SUP * n_baskets)) if MIN_SUP < 1 else int(MIN_SUP)
+    abs_min_sup = max(2, abs_min_sup)
+    print(f"[ML] Baskets: {n_baskets} | abs_min_sup: {abs_min_sup}")
+
+    tx_filtered = os.path.join(TMP_DIR, "transactions_filtered.txt")
+    _filter_transactions(tx_all, tx_filtered, item_supp, abs_min_sup)
+
+    if _fim is not None:
+        print("[ML] Minerando com 'fim' (C) FP-Growth…")
+    else:
+        print("[ML] 'fim' não encontrado — usando fallback pairwise 1->1 (low-mem).")
+
+    rules_iter = _mine_rules(tx_filtered, abs_min_sup, MIN_CONF)
+    rules_map = _build_rules_map(rules_iter, MAX_RULES_PER_ANT)
+    print(f"[ML] Antecedentes gerados: {len(rules_map)}")
+
+    _save_model(rules_map, n_baskets, abs_min_sup)
     print(f"[ML] Modelo salvo em: {MODEL_PATH}")
+    print(f"[ML] Meta salvo em:   {META_PATH}")
 
 if __name__ == "__main__":
     main()
