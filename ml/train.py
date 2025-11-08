@@ -161,12 +161,6 @@ def _filter_transactions(tx_in: str, tx_out: str, item_supp: dict, abs_min_sup: 
                 fout.write("\t".join(items) + "\n")
 
 def _mine_with_fim(tx_path: str, abs_min_sup: int, min_conf: float):
-    """
-    Usa fpgrowth do pacote 'fim' (C). Retorna iterável de tuplas (ant, cons, supp, conf).
-    conf em [0,1]. abs_min_sup inteiro.
-    """
-    # target='r' -> regras; report='aC' -> antecedente, consequente, confiança
-    # 'fim' devolve conf em porcento; 'pyfim' também aceita 'conf=XX'
     rules = _fim.fpgrowth(tx_path, target='r', supp=abs_min_sup, conf=int(min_conf*100),
                           report='aC', sep='\t')
     # Normaliza: alguns bindings retornam listas, outros iteradores
