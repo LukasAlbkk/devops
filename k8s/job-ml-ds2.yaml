@@ -32,7 +32,7 @@ spec:
 
             # CORREÇÃO: Adicionando o MAX_BASKETS
             - name: MAX_BASKETS
-              value: "50000" # Amostra de 50k
+              value: "20000" # Amostra de 50k
           
           # Pedindo o máximo de memória (2G)
           resources:
