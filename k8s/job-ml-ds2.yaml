@@ -1,7 +1,7 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: playlist-ml-ds2
+  name: playlist-ml-ds2-001
   namespace: lucascosta
 spec:
   backoffLimit: 1
@@ -14,7 +14,7 @@ spec:
           imagePullPolicy: Always
           env:
             - name: DATASET_URL
-              value: "file:///shared/datasets/2023_spotify_ds2.csv"
+              value: "/shared/datasets/2023_spotify_ds2.csv"
             - name: PLAYLIST_COL
               value: "pid"
             - name: SONG_COL

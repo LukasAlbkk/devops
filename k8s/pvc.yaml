@@ -4,12 +4,12 @@ metadata:
   name: project2-pvc
   namespace: lucascosta
 spec:
-  storageClassName: default-storage-class-lucascosta
   accessModes:
     - ReadWriteMany
   resources:
     requests:
       storage: 1Gi
+  storageClassName: default-storage-class-lucascosta
   selector:
     matchLabels:
       namespace: lucascosta
