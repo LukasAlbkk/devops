@@ -5,7 +5,7 @@ import pandas as pd
 from fpgrowth_py import fpgrowth
 
 # === Config por ENV ===
-DATASET_URL = os.getenv("/home/lucascosta/devops/datasets/2023_spotify_ds1.csv")  # ex: https://.../2023_spotify_ds1.csv  (ou file:///caminho/local.csv)
+DATASET_URL = os.getenv("DATASET_URL")  # ex: https://.../2023_spotify_ds1.csv  (ou file:///caminho/local.csv)
 PLAYLIST_COL = os.getenv("PLAYLIST_COL", "pid")
 SONG_COL     = os.getenv("SONG_COL", "track_name")
 MIN_SUP      = float(os.getenv("MIN_SUP", "0.001"))   # 0.1% por default (ajuste conforme memória/tempo)

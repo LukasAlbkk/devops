@@ -25,7 +25,7 @@ spec:
             - containerPort: 5000
           env:
             - name: MODEL_PATH
-              value: "/shared/model/model.pkl"
+              value: "/shared/model/rules_model.pkl"
             - name: DATASET_DIR
               value: "/shared/datasets"
             - name: API_PORT

@@ -14,7 +14,7 @@ spec:
           imagePullPolicy: Always
           env:
             - name: DATASET_URL
-              value: "/home/lucascosta/devops/datasets/2023_spotify_ds1.csv"
+              value: "https://raw.githubusercontent.com/LukasAlbkk/devops/main/datasets/2023_spotify_ds1.csv"
             - name: PLAYLIST_COL
               value: "pid"
             - name: SONG_COL
