@@ -3,11 +3,7 @@ apiVersion: batch/v1
 kind: Job
 metadata:
   # 1. Mudamos o nome para '005'
-<<<<<<< HEAD
-  name: playlist-ml-ds2-007
-=======
-  name: playlist-ml-ds2-010
->>>>>>> 6818ade (aaasdfefdadf)
+  name: playlist-ml-ds2-009
   namespace: lucascosta
 spec:
   backoffLimit: 1
@@ -30,14 +26,6 @@ spec:
               value: "0.15"
             - name: MODEL_DIR
               value: "/shared/model"
-<<<<<<< HEAD
-            
-            # 2. Voltando para o MIN_SUP alto que funcionou
-            - name: MIN_SUP
-              value: "0.005"
-            
-            # 3. MAX_BASKETS foi removido (porque o 'train.py' revertido não o usa)
-=======
 
             # MIN_SUP mais baixo para gerar mais regras (0.2% = 2 playlists a cada 1000)
             - name: MIN_SUP
@@ -46,7 +34,6 @@ spec:
             # Aumentar número máximo de regras por antecedente
             - name: MAX_RULES_PER_ANT
               value: "50"
->>>>>>> 6818ade (aaasdfefdadf)
           
           resources:
             requests:
