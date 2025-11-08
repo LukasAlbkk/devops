@@ -59,6 +59,7 @@ def _download_or_open(url: str) -> io.BytesIO:
             return io.BytesIO(f.read())
     raise ValueError(f"Não consegui abrir: {url}")
 
+<<<<<<< HEAD
 def _to_sqlite(csv_buf: io.BytesIO, sqlite_path: str) -> tuple[int, int]:
     """Carrega PID e SONG em um SQLite (em disco), em chunks. Retorna (linhas, playlists_distintas)."""
     conn = sqlite3.connect(sqlite_path)
@@ -108,6 +109,62 @@ def _dump_tx_and_item_supp(sqlite_path: str, tx_path: str) -> tuple[int, dict]:
     cur = conn.cursor()
     cur_it = cur.execute("SELECT pid, song FROM plays ORDER BY pid;")
 
+=======
+def _norm(song: str) -> str:
+    """Normaliza nome de música (mesma função usada na API)."""
+    return str(song).casefold().strip()
+
+def _to_sqlite(csv_buf: io.BytesIO, sqlite_path: str) -> tuple[int, int]:
+    """Carrega PID e SONG em um SQLite (em disco), em chunks. Retorna (linhas, playlists_distintas)."""
+    conn = sqlite3.connect(sqlite_path)
+    cur = conn.cursor()
+    cur.execute("PRAGMA journal_mode=WAL;")
+    cur.execute("PRAGMA synchronous=NORMAL;")
+    cur.execute("CREATE TABLE IF NOT EXISTS plays (pid TEXT, song TEXT);")
+    conn.commit()
+
+    total_rows = 0
+    for chunk in pd.read_csv(csv_buf, dtype=str, keep_default_na=False,
+                             chunksize=CHUNK_ROWS, low_memory=True):
+        # pick case-insensitive
+        def pick(cands):
+            for n in cands:
+                for c in chunk.columns:
+                    if c.lower() == n.lower():
+                        return c
+            return None
+        pl_col = pick([PLAYLIST_COL, "playlist_id", "pid", "playlist"])
+        sg_col = pick([SONG_COL, "song_name", "track_name", "track", "track_uri", "song"])
+        if not pl_col or not sg_col:
+            raise ValueError("Não consegui identificar as colunas de playlist e música.")
+        sub = chunk[[pl_col, sg_col]].rename(columns={pl_col:"pid", sg_col:"song"})
+        # Normaliza músicas durante a inserção
+        rows = [(str(p).strip(), _norm(s)) for p,s in sub.itertuples(index=False) if str(p).strip() and str(s).strip()]
+        if not rows:
+            continue
+        cur.execute("BEGIN")
+        cur.executemany("INSERT INTO plays(pid, song) VALUES (?,?)", rows)
+        conn.commit()
+        total_rows += len(rows)
+
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_pid ON plays(pid);")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_song ON plays(song);")
+    conn.commit()
+
+    n_playlists = cur.execute("SELECT COUNT(DISTINCT pid) FROM plays;").fetchone()[0]
+    conn.close()
+    return total_rows, n_playlists
+
+def _dump_tx_and_item_supp(sqlite_path: str, tx_path: str) -> tuple[int, dict]:
+    """
+    Gera transactions (uma linha por playlist, itens separados por TAB) varrendo ordenado por pid.
+    Calcula suporte de 1-item (por #playlists) sem usar group_concat (menos RAM).
+    """
+    conn = sqlite3.connect(sqlite_path)
+    cur = conn.cursor()
+    cur_it = cur.execute("SELECT pid, song FROM plays ORDER BY pid;")
+
+>>>>>>> 6818ade (aaasdfefdadf)
     n_baskets = 0
     item_supp = {}
     with open(tx_path, "w", encoding="utf-8") as fout:
@@ -221,6 +278,10 @@ def _build_rules_map(rules_iter, max_rules_per_ant=30):
     tmp = {}
     count = 0
     for ant, cons, supp, conf in rules_iter:
+<<<<<<< HEAD
+=======
+        # Não precisa normalizar aqui, já está normalizado desde o SQLite
+>>>>>>> 6818ade (aaasdfefdadf)
         ant_t = tuple(sorted([str(x) for x in ant]))
         cons_t = tuple(sorted([str(x) for x in cons]))
         tmp.setdefault(ant_t, []).append((cons_t, float(conf)))
@@ -228,6 +289,10 @@ def _build_rules_map(rules_iter, max_rules_per_ant=30):
     rules_map = {}
     for ant, lst in tmp.items():
         rules_map[ant] = nlargest(max_rules_per_ant, lst, key=lambda x: x[1])
+<<<<<<< HEAD
+=======
+    print(f"[ML] Total de regras brutas processadas: {count}")
+>>>>>>> 6818ade (aaasdfefdadf)
     return rules_map
 
 def _save_model(rules_map: dict, n_baskets: int, abs_min_sup: int):

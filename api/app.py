@@ -40,6 +40,9 @@ def _recommend(input_songs: list[str], top_k: int = 20):
         return []
 
     input_norm = [_norm(s) for s in input_songs if str(s).strip()]
+    if not input_norm:
+        return []
+
     rules = app.model["rules"]
 
     # score por consequente
@@ -48,16 +51,23 @@ def _recommend(input_songs: list[str], top_k: int = 20):
     # para cada antecedente que é subconjunto das músicas do usuário
     input_set = set(input_norm)
 
+    # Contador de regras aplicadas (para debug)
+    rules_applied = 0
+
     # mapeia todas as combinações possíveis presentes nos antecedentes
     for ant_t, outs in rules.items():
-        ant_set = set(_norm(x) for x in ant_t)
+        # As músicas já estão normalizadas no modelo
+        ant_set = set(ant_t)
         if ant_set.issubset(input_set) and len(ant_set) > 0:
+            rules_applied += 1
             for cons_t, conf in outs:
                 for c in cons_t:
-                    c_norm = _norm(c)
-                    if c_norm in input_set:  # não recomendar o que já veio
+                    # c já está normalizado no modelo
+                    if c in input_set:  # não recomendar o que já veio
                         continue
-                    scores[c_norm] = scores.get(c_norm, 0.0) + float(conf)
+                    scores[c] = scores.get(c, 0.0) + float(conf)
+
+    app.logger.debug(f"[API] Regras aplicadas: {rules_applied}, Candidatos únicos: {len(scores)}")
 
     ranked = sorted(scores.items(), key=lambda kv: kv[1], reverse=True)
     return [name for name, _ in ranked[:top_k]]
@@ -71,15 +81,57 @@ def recommend():
     # força JSON
     payload = request.get_json(force=True, silent=True) or {}
     songs = payload.get("songs", [])
+
+    # Validação de entrada
     if not isinstance(songs, list):
         return jsonify({"error": "songs deve ser uma lista de strings"}), 400
 
+    if len(songs) == 0:
+        return jsonify({
+            "error": "Lista de músicas vazia. Forneça pelo menos 1 música.",
+            "example": {"songs": ["Song Name 1", "Song Name 2"]}
+        }), 400
+
+    # Validar se todos os itens são strings
+    invalid_items = [i for i, s in enumerate(songs) if not isinstance(s, str) or not str(s).strip()]
+    if invalid_items:
+        return jsonify({
+            "error": f"Itens inválidos nas posições: {invalid_items}. Todos devem ser strings não vazias."
+        }), 400
+
+    # Log da requisição
+    app.logger.info(f"[API] Recomendando para {len(songs)} música(s)")
+
+    # Verifica se modelo existe
+    if not app.model:
+        app.logger.warning("[API] Modelo não carregado. Retornando lista vazia.")
+        return jsonify({
+            "songs": [],
+            "version": CODE_VERSION,
+            "model_date": None,
+            "warning": "Modelo não carregado ainda. Aguarde o treinamento completar."
+        }), 200
+
+    if "rules" not in app.model or len(app.model.get("rules", {})) == 0:
+        app.logger.warning("[API] Modelo carregado mas sem regras.")
+        return jsonify({
+            "songs": [],
+            "version": CODE_VERSION,
+            "model_date": app.model.get("model_date"),
+            "warning": "Modelo sem regras de associação. Talvez MIN_SUP esteja muito alto."
+        }), 200
+
     recs = _recommend(songs)
-    model_date = (app.model or {}).get("model_date", None)
+    model_date = app.model.get("model_date", None)
+
+    app.logger.info(f"[API] Retornando {len(recs)} recomendações")
+
     return jsonify({
         "songs": recs,
         "version": CODE_VERSION,
-        "model_date": model_date
+        "model_date": model_date,
+        "input_songs_count": len(songs),
+        "total_rules": len(app.model.get("rules", {}))
     })
 
 if __name__ == "__main__":
