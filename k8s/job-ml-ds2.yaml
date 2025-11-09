@@ -3,7 +3,7 @@ apiVersion: batch/v1
 kind: Job
 metadata:
   # 1. Mudamos o nome para '005'
-  name: playlist-ml-ds2-0066
+  name: playlist-ml-ds2-0069
   namespace: lucascosta
 spec:
   backoffLimit: 1
@@ -12,7 +12,7 @@ spec:
       restartPolicy: Never
       containers:
         - name: ml-train
-          image: docker.io/lukasalbukk/playlist-ml:0.4
+          image: docker.io/lukasalbukk/playlist-ml:0.5
           imagePullPolicy: Always
           env:
             - name: DATASET_URL

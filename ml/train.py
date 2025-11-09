@@ -192,7 +192,18 @@ def _mine_with_fim(tx_path: str, abs_min_sup: int, min_conf: float):
     rules = _fim.fpgrowth(tx_path, target='r', supp=abs_min_sup, conf=int(min_conf*100),
                           report='aC')
     # Normaliza: alguns bindings retornam listas, outros iteradores
-    for ant, cons, conf in rules:
+    # pyfim pode retornar formatos diferentes dependendo da versão
+    for rule in rules:
+        # Desempacota independente do número de valores retornados
+        if len(rule) == 3:
+            ant, cons, conf = rule
+        elif len(rule) == 4:
+            ant, cons, supp, conf = rule
+        else:
+            # Se formato inesperado, tenta pegar os 2 primeiros como ant/cons e último como conf
+            ant, cons = rule[0], rule[1]
+            conf = rule[-1]
+
         # quando report='aC', alguns retornos podem vir como strings separadas por tab; normalizamos
         if isinstance(ant, str):
             ant = tuple([x for x in ant.split('\t') if x])
