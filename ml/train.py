@@ -259,15 +259,27 @@ def _build_rules_map(rules_iter, max_rules_per_ant=30):
     tmp = {}
     count = 0
     for ant, cons, supp, conf in rules_iter:
+        # Debug: mostrar as primeiras 5 regras
+        if count < 5:
+            print(f"[ML DEBUG] Rule {count}: ant={ant} (type={type(ant)}), cons={cons} (type={type(cons)}), conf={conf}")
+
         # Não precisa normalizar aqui, já está normalizado desde o SQLite
         ant_t = tuple(sorted([str(x) for x in ant]))
         cons_t = tuple(sorted([str(x) for x in cons]))
+
+        if count < 5:
+            print(f"[ML DEBUG] Converted: ant_t={ant_t}, cons_t={cons_t}")
+
         tmp.setdefault(ant_t, []).append((cons_t, float(conf)))
         count += 1
     rules_map = {}
     for ant, lst in tmp.items():
         rules_map[ant] = nlargest(max_rules_per_ant, lst, key=lambda x: x[1])
     print(f"[ML] Total de regras brutas processadas: {count}")
+    print(f"[ML] Total de antecedentes únicos: {len(rules_map)}")
+    if len(rules_map) > 0:
+        sample_ant = list(rules_map.keys())[0]
+        print(f"[ML] Sample antecedent: {sample_ant}")
     return rules_map
 
 def _save_model(rules_map: dict, n_baskets: int, abs_min_sup: int):
