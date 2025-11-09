@@ -3,7 +3,7 @@ apiVersion: batch/v1
 kind: Job
 metadata:
   # 1. Mudamos o nome para '005'
-  name: playlist-ml-ds2-0074
+  name: playlist-ml-ds2-0073
   namespace: lucascosta
 spec:
   backoffLimit: 1
