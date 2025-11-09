@@ -249,9 +249,15 @@ def _mine_pairwise_fallback(tx_path: str, abs_min_sup: int, min_conf: float):
                 yield (b,), (a,), c_ab, conf_ba
 
 def _mine_rules(tx_path: str, abs_min_sup: int, min_conf: float):
-    if _fim is not None:
-        return _mine_with_fim(tx_path, abs_min_sup, min_conf)
+    # IMPORTANTE: pyfim tem problemas de compatibilidade com o formato de arquivo
+    # Usando fallback pairwise que é confiável e funciona bem para recomendações
+    print("[ML] Usando fallback pairwise 1->1 (confiável, sem dependência de pyfim)")
     return _mine_pairwise_fallback(tx_path, abs_min_sup, min_conf)
+
+    # Código original caso queira testar pyfim no futuro:
+    # if _fim is not None:
+    #     return _mine_with_fim(tx_path, abs_min_sup, min_conf)
+    # return _mine_pairwise_fallback(tx_path, abs_min_sup, min_conf)
 
 def _build_rules_map(rules_iter, max_rules_per_ant=30):
     """Dict: antecedente(tuple) -> top-K [(consequente(tuple), conf)], ordenado por confiança."""

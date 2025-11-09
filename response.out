@@ -1,1 +1,1 @@
-{"debug_info":"Tested 2 songs against 1 rule antecedents","input_songs_count":2,"input_songs_normalized":["yesterday","bohemian rhapsody"],"model_date":"2025-11-09T00:01:30Z","sample_antecedents":[["t"]],"songs":[],"total_rules":1,"version":"0.4.0"}
+{"debug_info":"Tested 2 songs against 1 rule antecedents","input_songs_count":2,"input_songs_normalized":["yesterday","bohemian rhapsody"],"model_date":"2025-11-09T00:04:08Z","sample_antecedents":[["t"]],"songs":[],"total_rules":1,"version":"0.4.0"}
