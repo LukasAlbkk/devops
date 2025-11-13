@@ -1,29 +1,16 @@
-# train_rules.py
-# Treino low-memory de regras de associação a partir dos CSVs do Spotify.
-# Uso típico no cluster:
-#   export DATASET_URL="file:///home/datasets/spotify/2023_spotify_ds1.csv"
-#   export MODEL_DIR="/shared/model"
-#   python train_rules.py
-#
-# Env vars (opcionais):
-#   PLAYLIST_COL=pid   | SONG_COL=track_name
-#   MIN_SUP=0.01       | MIN_CONF=0.2
-#   CHUNK_ROWS=250000  | TMP_DIR=/tmp
-#   MODEL_NAME=rules_model.pkl | MAX_RULES_PER_ANT=30
 
 import os, io, json, time, pickle, sqlite3, math
 from urllib.parse import urlparse
 import pandas as pd
 
-# -------------------- Config por ENV --------------------
-DATASET_URL = os.getenv("DATASET_URL")                      # http(s)://, file://, ou caminho local
+DATASET_URL = os.getenv("DATASET_URL")                      
 PLAYLIST_COL = os.getenv("PLAYLIST_COL", "pid")
 SONG_COL     = os.getenv("SONG_COL", "track_name")
-MIN_SUP      = float(os.getenv("MIN_SUP", "0.01"))          # 1% (ajuste conforme o tamanho do dataset)
+MIN_SUP      = float(os.getenv("MIN_SUP", "0.01"))         
 MIN_CONF     = float(os.getenv("MIN_CONF", "0.2"))
 MODEL_DIR    = os.getenv("MODEL_DIR", "/shared/model")
 MODEL_NAME   = os.getenv("MODEL_NAME", "rules_model.pkl")
-CHUNK_ROWS   = int(os.getenv("CHUNK_ROWS", "250000"))       # leitura em chunks = pouco uso de RAM
+CHUNK_ROWS   = int(os.getenv("CHUNK_ROWS", "250000"))      
 TMP_DIR      = os.getenv("TMP_DIR", "/tmp")
 MAX_RULES_PER_ANT = int(os.getenv("MAX_RULES_PER_ANT", "30"))
 
@@ -32,17 +19,15 @@ os.makedirs(MODEL_DIR, exist_ok=True)
 MODEL_PATH = os.path.join(MODEL_DIR, MODEL_NAME)
 META_PATH  = os.path.join(MODEL_DIR, "model_meta.json")
 
-# -------------------- Tentativa de minerador em C (memória bem menor) --------------------
 _fim = None
 try:
-    import fim as _fim   # pip install fim
+    import fim as _fim   
 except Exception:
     try:
-        import pyfim as _fim  # alternativa
+        import pyfim as _fim  
     except Exception:
         _fim = None
 
-# -------------------- Utilidades --------------------
 def _download_or_open(url: str) -> io.BytesIO:
     p = urlparse(url)
     if p.scheme in ("http", "https"):
@@ -54,7 +39,7 @@ def _download_or_open(url: str) -> io.BytesIO:
         path = p.path
         with open(path, "rb") as f:
             return io.BytesIO(f.read())
-    if os.path.exists(url):  # caminho local cru
+    if os.path.exists(url):  
         with open(url, "rb") as f:
             return io.BytesIO(f.read())
     raise ValueError(f"Não consegui abrir: {url}")
@@ -63,7 +48,6 @@ def _norm(song: str) -> str:
     """Normaliza nome de música removendo sufixos comuns e padronizando (mesma função usada na API)."""
     s = str(song).casefold().strip()
 
-    # Remove sufixos comuns do Spotify
     suffixes = [
         ' - remastered 2011',
         ' - remastered 2009',
@@ -96,7 +80,6 @@ def _to_sqlite(csv_buf: io.BytesIO, sqlite_path: str) -> tuple[int, int]:
     total_rows = 0
     for chunk in pd.read_csv(csv_buf, dtype=str, keep_default_na=False,
                              chunksize=CHUNK_ROWS, low_memory=True):
-        # pick case-insensitive
         def pick(cands):
             for n in cands:
                 for c in chunk.columns:
@@ -108,7 +91,6 @@ def _to_sqlite(csv_buf: io.BytesIO, sqlite_path: str) -> tuple[int, int]:
         if not pl_col or not sg_col:
             raise ValueError("Não consegui identificar as colunas de playlist e música.")
         sub = chunk[[pl_col, sg_col]].rename(columns={pl_col:"pid", sg_col:"song"})
-        # Normaliza músicas durante a inserção
         rows = [(str(p).strip(), _norm(s)) for p,s in sub.itertuples(index=False) if str(p).strip() and str(s).strip()]
         if not rows:
             continue
@@ -145,14 +127,11 @@ def _dump_tx_and_item_supp(sqlite_path: str, tx_path: str) -> tuple[int, dict]:
             if last_pid is None:
                 last_pid = pid
             if pid != last_pid:
-                # fecha playlist anterior
                 if len(basket) >= 2:
                     fout.write("\t".join(basket) + "\n")
                     n_baskets += 1
-                    # incrementa suporte 1-item para itens únicos dessa playlist
                     for it in seen:
                         item_supp[it] = item_supp.get(it, 0) + 1
-                # inicia nova playlist
                 last_pid = pid
                 seen.clear()
                 basket.clear()
@@ -161,7 +140,6 @@ def _dump_tx_and_item_supp(sqlite_path: str, tx_path: str) -> tuple[int, dict]:
                 seen.add(song)
                 basket.append(song)
 
-        # flush final
         if basket:
             if len(basket) >= 2:
                 fout.write("\t".join(basket) + "\n")
@@ -182,29 +160,19 @@ def _filter_transactions(tx_in: str, tx_out: str, item_supp: dict, abs_min_sup: 
                 fout.write("\t".join(items) + "\n")
 
 def _mine_with_fim(tx_path: str, abs_min_sup: int, min_conf: float):
-    """
-    Usa fpgrowth do pacote 'fim' (C). Retorna iterável de tuplas (ant, cons, supp, conf).
-    conf em [0,1]. abs_min_sup inteiro.
-    """
-    # target='r' -> regras; report='aC' -> antecedente, consequente, confiança
-    # 'fim' devolve conf em porcento; 'pyfim' também aceita 'conf=XX'
-    # Nota: pyfim não aceita 'sep' como parâmetro, assume tab automaticamente
+
     rules = _fim.fpgrowth(tx_path, target='r', supp=abs_min_sup, conf=int(min_conf*100),
                           report='aC')
-    # Normaliza: alguns bindings retornam listas, outros iteradores
-    # pyfim pode retornar formatos diferentes dependendo da versão
+
     for rule in rules:
-        # Desempacota independente do número de valores retornados
         if len(rule) == 3:
             ant, cons, conf = rule
         elif len(rule) == 4:
             ant, cons, supp, conf = rule
         else:
-            # Se formato inesperado, tenta pegar os 2 primeiros como ant/cons e último como conf
             ant, cons = rule[0], rule[1]
             conf = rule[-1]
 
-        # quando report='aC', alguns retornos podem vir como strings separadas por tab; normalizamos
         if isinstance(ant, str):
             ant = tuple([x for x in ant.split('\t') if x])
         if isinstance(cons, str):
@@ -212,10 +180,7 @@ def _mine_with_fim(tx_path: str, abs_min_sup: int, min_conf: float):
         yield tuple(ant), tuple(cons), None, float(conf)/100.0
 
 def _mine_pairwise_fallback(tx_path: str, abs_min_sup: int, min_conf: float):
-    """
-    Fallback leve (sem árvore): calcula regras 1->1 a partir de pares frequentes.
-    É suficiente para recomendações básicas e cabe em pouca RAM após o filtro.
-    """
+
     from collections import Counter
     item_cnt = Counter()
     pair_cnt = Counter()
@@ -223,7 +188,6 @@ def _mine_pairwise_fallback(tx_path: str, abs_min_sup: int, min_conf: float):
     with open(tx_path, "r", encoding="utf-8") as f:
         for line in f:
             items = line.rstrip("\n").split("\t")
-            # limita tamanho extremo de cestas para memória previsível (opcional)
             if len(items) > 200:
                 items = items[:200]
             uniq = list(dict.fromkeys(items))
@@ -249,23 +213,15 @@ def _mine_pairwise_fallback(tx_path: str, abs_min_sup: int, min_conf: float):
                 yield (b,), (a,), c_ab, conf_ba
 
 def _mine_rules(tx_path: str, abs_min_sup: int, min_conf: float):
-    # IMPORTANTE: pyfim tem problemas de compatibilidade com o formato de arquivo
-    # Usando fallback pairwise que é confiável e funciona bem para recomendações
-    print("[ML] Usando fallback pairwise 1->1 (confiável, sem dependência de pyfim)")
+    
     return _mine_pairwise_fallback(tx_path, abs_min_sup, min_conf)
 
-    # Código original caso queira testar pyfim no futuro:
-    # if _fim is not None:
-    #     return _mine_with_fim(tx_path, abs_min_sup, min_conf)
-    # return _mine_pairwise_fallback(tx_path, abs_min_sup, min_conf)
-
+    
 def _build_rules_map(rules_iter, max_rules_per_ant=30):
-    """Dict: antecedente(tuple) -> top-K [(consequente(tuple), conf)], ordenado por confiança."""
     from heapq import nlargest
     tmp = {}
     count = 0
     for ant, cons, supp, conf in rules_iter:
-        # Debug: mostrar as primeiras 5 regras
         if count < 5:
             print(f"[ML DEBUG] Rule {count}: ant={ant} (type={type(ant)}), cons={cons} (type={type(cons)}), conf={conf}")
 
